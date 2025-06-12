@@ -54,14 +54,48 @@ class HintViewSet(viewsets.ViewSet):
             hint__problem=problem
         ).select_related('hint').order_by('-created_at')
 
-    def _create_attempt(self, user_id, problem, user_code):
-        """Create a new attempt record"""
-        return Attempt.objects.create(
+    def _get_previous_attempts(self, user_id, problem):
+        """Get previous attempts for this user and problem"""
+        return Attempt.objects.filter(
             user_id=user_id,
-            problem=problem,
-            code=user_code,
-            status='pending'
-        )
+            problem=problem
+        ).order_by('-created_at')
+
+    def _get_next_hint_level(self, progress: UserProgress, attempt_evaluation: dict) -> int:
+        """
+        Determine the next hint level based on user progress and attempt evaluation.
+        Hint levels:
+        1. Conceptual (Basic understanding)
+        2. Approach (Problem-solving strategy)
+        3. Implementation (Code structure)
+        4. Debug (Specific issues)
+        5. Solution (Almost complete solution)
+        """
+        current_level = progress.current_hint_level
+        
+        # If user has made multiple failed attempts, increase hint level
+        if progress.failed_attempts_count >= 3:
+            return min(current_level + 1, 5)
+            
+        # If user is stuck (inactive for 5+ minutes), increase hint level
+        if progress.is_stuck():
+            return min(current_level + 1, 5)
+            
+        # If attempt evaluation shows specific issues, adjust level accordingly
+        if attempt_evaluation.get('edge_cases'):
+            # If missing edge cases, focus on implementation level
+            return max(3, current_level)
+            
+        # If code has complexity issues, focus on approach level
+        if 'complexity' in attempt_evaluation.get('reason', '').lower():
+            return max(2, current_level)
+            
+        # If basic logic issues, focus on conceptual level
+        if 'logic' in attempt_evaluation.get('reason', '').lower():
+            return max(1, current_level)
+            
+        # Default: stay at current level
+        return current_level
 
     @action(detail=False, methods=['post'])
     def request_hint(self, request):
@@ -88,6 +122,19 @@ class HintViewSet(viewsets.ViewSet):
         # Get or create user progress
         progress = self._get_user_progress(user_id, problem)
         
+        # Increment attempts count
+        progress.attempts_count += 1
+        
+        # Evaluate the attempt using LLM
+        attempt_evaluation = self.openrouter_service.evaluate_attempt(
+            problem_description=problem.description,
+            user_code=user_code
+        )
+        
+        # Update failed attempts count if attempt was unsuccessful
+        if not attempt_evaluation['success']:
+            progress.failed_attempts_count += 1
+        
         # Calculate time since last attempt
         time_since_last_attempt = 0
         if progress.last_activity:
@@ -96,12 +143,39 @@ class HintViewSet(viewsets.ViewSet):
         progress.last_activity = timezone.now()
         progress.save()
 
-        # Create attempt record
-        attempt = self._create_attempt(user_id, problem, user_code)
+        # Create attempt record with evaluation details
+        attempt = Attempt.objects.create(
+            user_id=user_id,
+            problem=problem,
+            code=user_code,
+            status='failed' if not attempt_evaluation['success'] else 'success',
+            evaluation_details=attempt_evaluation
+        )
 
+        # If the attempt was successful, return success response without generating a hint
+        if attempt_evaluation['success']:
+            return Response({
+                'status': 'success',
+                'message': 'Your solution is correct!',
+                'attempt_evaluation': attempt_evaluation,
+                'user_progress': {
+                    'attempts_count': progress.attempts_count,
+                    'failed_attempts_count': progress.failed_attempts_count,
+                    'current_hint_level': progress.current_hint_level,
+                    'is_stuck': progress.is_stuck(),
+                    'time_since_last_attempt': time_since_last_attempt
+                }
+            })
+
+        # If attempt was unsuccessful, proceed with hint generation
         # Get previous hints
         previous_hints = self._get_previous_hints(user_id, problem)
         previous_hints_text = [delivery.hint.content for delivery in previous_hints]
+
+        # Determine next hint level
+        next_hint_level = self._get_next_hint_level(progress, attempt_evaluation)
+        progress.current_hint_level = next_hint_level
+        progress.save()
 
         # Prepare user progress data
         user_progress_data = {
@@ -117,7 +191,7 @@ class HintViewSet(viewsets.ViewSet):
             problem_description=problem.description,
             user_code=user_code,
             previous_hints=previous_hints_text,
-            hint_level=progress.current_hint_level,
+            hint_level=next_hint_level,
             user_progress=user_progress_data
         )
 
@@ -125,7 +199,7 @@ class HintViewSet(viewsets.ViewSet):
         hint = Hint.objects.create(
             problem=problem,
             content=hint_content,
-            level=progress.current_hint_level
+            level=next_hint_level
         )
 
         # Create hint delivery
@@ -154,11 +228,8 @@ class HintViewSet(viewsets.ViewSet):
             pedagogical_value_score=evaluation['pedagogical_value_score']
         )
 
-        # Update user progress
-        progress.current_hint_level += 1
-        progress.save()
-
         return Response({
+            'status': 'failed',
             'hint': {
                 'id': hint.id,
                 'content': hint.content,
@@ -173,6 +244,7 @@ class HintViewSet(viewsets.ViewSet):
                 'pedagogical_value_score': evaluation['pedagogical_value_score']
             },
             'attempt_id': attempt.id,
+            'attempt_evaluation': attempt_evaluation,
             'user_progress': user_progress_data
         })
 

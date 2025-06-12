@@ -1,3 +1,7 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
 def get_hint_prompt(
     problem_description: str,
     user_code: str,
@@ -9,6 +13,22 @@ def get_hint_prompt(
     """
     Constructs the prompt for hint generation with context about user progress
     """
+    # Log previous hints being sent to LLM
+    logger.info("\n=== Previous Hints Being Sent to LLM ===")
+    for i, hint in enumerate(previous_hints, 1):
+        logger.info(f"\nPrevious Hint {i}:")
+        logger.info(f"Content: {hint}")
+    logger.info("-" * 50)
+
+    # Log user progress being sent to LLM
+    logger.info("\n=== User Progress Being Sent to LLM ===")
+    logger.info(f"Total Attempts: {user_progress['attempts_count']}")
+    logger.info(f"Failed Attempts: {user_progress['failed_attempts_count']}")
+    logger.info(f"Current Hint Level: {user_progress['current_hint_level']}")
+    logger.info(f"Time Since Last Attempt: {user_progress['time_since_last_attempt']} seconds")
+    logger.info(f"Is Stuck: {user_progress['is_stuck']}")
+    logger.info("-" * 50)
+
     return f"""
     Problem Description: {problem_description}
     
@@ -53,6 +73,14 @@ def get_evaluation_prompt(
     """
     Constructs the prompt for comprehensive hint evaluation
     """
+    # Log what's being sent to LLM for evaluation
+    logger.info("\n=== Evaluation Request Being Sent to LLM ===")
+    logger.info(f"Hint Content: {hint_content}")
+    logger.info(f"User Code: {user_code}")
+    logger.info(f"User Progress: {user_progress}")
+    logger.info(f"Previous Hints: {previous_hints}")
+    logger.info("-" * 50)
+
     return f"""
     Problem Description: {problem_description}
     
@@ -100,6 +128,13 @@ def get_auto_trigger_prompt(
     """
     Constructs the prompt for determining if a hint should be auto-triggered
     """
+    # Log what's being sent to LLM for auto-trigger decision
+    logger.info("\n=== Auto-Trigger Decision Being Sent to LLM ===")
+    logger.info(f"User Code: {user_code}")
+    logger.info(f"User Progress: {user_progress}")
+    logger.info(f"Last Attempt: {last_attempt}")
+    logger.info("-" * 50)
+
     return f"""
     Problem Description: {problem_description}
     

@@ -44,6 +44,7 @@ class Attempt(models.Model):
     problem = models.ForeignKey(Problem, on_delete=models.CASCADE, related_name='attempts')
     code = models.TextField()
     status = models.CharField(max_length=20, default='pending')
+    evaluation_details = models.JSONField(null=True, blank=True)  # Added field for storing evaluation details
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

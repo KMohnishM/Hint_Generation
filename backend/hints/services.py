@@ -102,7 +102,7 @@ class OpenRouterService:
         # Set default score of 0.5 for any missing scores
         for score in required_scores:
             if score not in scores:
-                scores[score] = 0.5
+                scores[score] = 0.0
         
         return scores
 
@@ -152,4 +152,69 @@ class OpenRouterService:
                 except (ValueError, IndexError):
                     hint_level = 1
         
-        return should_trigger, reason, hint_type, hint_level 
+        return should_trigger, reason, hint_type, hint_level
+
+    def evaluate_attempt(
+        self,
+        problem_description: str,
+        user_code: str,
+        expected_output: str = None
+    ) -> Dict[str, Any]:
+        """
+        Evaluate if the user's attempt was successful by analyzing their code
+        """
+        prompt = f"""
+        Problem Description: {problem_description}
+        
+        User's Code:
+        {user_code}
+        
+        Please analyze if this code would solve the problem correctly. Consider:
+        1. Logic correctness
+        2. Edge cases
+        3. Time and space complexity
+        4. Code quality
+        
+        Respond in the following format:
+        success: [true/false]
+        reason: [brief explanation]
+        complexity: [time and space complexity]
+        edge_cases: [list of edge cases handled or missed]
+        
+        Example response:
+        success: false
+        reason: The code doesn't handle the case where no solution exists
+        complexity: O(n) time, O(1) space
+        edge_cases: Missing empty array, missing no-solution case
+        """
+        
+        response = self._make_api_call(prompt)
+        
+        # Parse the response
+        result = {
+            'success': False,
+            'reason': '',
+            'complexity': '',
+            'edge_cases': []
+        }
+        
+        for line in response.split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+            
+            if ':' in line:
+                key, value = line.split(':', 1)
+                key = key.strip().lower()
+                value = value.strip()
+                
+                if key == 'success':
+                    result['success'] = value.lower() == 'true'
+                elif key == 'reason':
+                    result['reason'] = value
+                elif key == 'complexity':
+                    result['complexity'] = value
+                elif key == 'edge_cases':
+                    result['edge_cases'] = [case.strip() for case in value.split(',')]
+        
+        return result 
