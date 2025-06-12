@@ -97,6 +97,34 @@ class HintViewSet(viewsets.ViewSet):
         # Default: stay at current level
         return current_level
 
+    def _get_hint_type(self, hint_level: int, attempt_evaluation: dict) -> str:
+        """
+        Determine the hint type based on hint level and attempt evaluation.
+        Hint types:
+        - conceptual: Basic understanding (level 1)
+        - approach: Problem-solving strategy (level 2)
+        - implementation: Code structure (level 3)
+        - debug: Specific issues (level 4)
+        """
+        # If there are specific issues in the code, use debug type
+        if attempt_evaluation.get('edge_cases') or 'error' in attempt_evaluation.get('reason', '').lower():
+            return 'debug'
+            
+        # If there are complexity issues, use approach type
+        if 'complexity' in attempt_evaluation.get('reason', '').lower():
+            return 'approach'
+            
+        # Map hint levels to types
+        hint_type_map = {
+            1: 'conceptual',
+            2: 'approach',
+            3: 'implementation',
+            4: 'debug',
+            5: 'debug'  # Level 5 is also debug as it's for specific issues
+        }
+        
+        return hint_type_map.get(hint_level, 'conceptual')
+
     @action(detail=False, methods=['post'])
     def request_hint(self, request):
         """Request a hint for a problem"""
@@ -177,6 +205,9 @@ class HintViewSet(viewsets.ViewSet):
         progress.current_hint_level = next_hint_level
         progress.save()
 
+        # Determine hint type
+        hint_type = self._get_hint_type(next_hint_level, attempt_evaluation)
+
         # Prepare user progress data
         user_progress_data = {
             'attempts_count': progress.attempts_count,
@@ -192,14 +223,16 @@ class HintViewSet(viewsets.ViewSet):
             user_code=user_code,
             previous_hints=previous_hints_text,
             hint_level=next_hint_level,
-            user_progress=user_progress_data
+            user_progress=user_progress_data,
+            hint_type=hint_type  # Pass hint type to the generator
         )
 
         # Create hint
         hint = Hint.objects.create(
             problem=problem,
             content=hint_content,
-            level=next_hint_level
+            level=next_hint_level,
+            hint_type=hint_type  # Set the hint type
         )
 
         # Create hint delivery
