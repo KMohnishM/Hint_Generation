@@ -24,22 +24,27 @@ class HintViewSet(viewsets.ViewSet):
             if problem_data:
                 problem = Problem.objects.create(
                     title=problem_data.get('title', 'Untitled Problem'),
-                    description=problem_data.get('description', '')
+                    description=problem_data.get('description', ''),
+                    difficulty='medium'  # Set a default difficulty
                 )
                 return problem
             return None
 
     def _get_user_progress(self, user_id, problem):
         """Get or create user progress"""
-        progress, _ = UserProgress.objects.get_or_create(
-            user_id=user_id,
-            problem=problem,
-            defaults={
-                'attempts_count': 0,
-                'failed_attempts_count': 0,
-                'current_hint_level': 1
-            }
-        )
+        try:
+            progress = UserProgress.objects.get(
+                user_id=user_id,
+                problem=problem
+            )
+        except UserProgress.DoesNotExist:
+            progress = UserProgress.objects.create(
+                user_id=user_id,
+                problem=problem,
+                attempts_count=0,
+                failed_attempts_count=0,
+                current_hint_level=1
+            )
         return progress
 
     def _get_previous_hints(self, user_id, problem):
@@ -82,6 +87,12 @@ class HintViewSet(viewsets.ViewSet):
 
         # Get or create user progress
         progress = self._get_user_progress(user_id, problem)
+        
+        # Calculate time since last attempt
+        time_since_last_attempt = 0
+        if progress.last_activity:
+            time_since_last_attempt = (timezone.now() - progress.last_activity).total_seconds()
+        
         progress.last_activity = timezone.now()
         progress.save()
 
@@ -92,12 +103,22 @@ class HintViewSet(viewsets.ViewSet):
         previous_hints = self._get_previous_hints(user_id, problem)
         previous_hints_text = [delivery.hint.content for delivery in previous_hints]
 
+        # Prepare user progress data
+        user_progress_data = {
+            'attempts_count': progress.attempts_count,
+            'failed_attempts_count': progress.failed_attempts_count,
+            'current_hint_level': progress.current_hint_level,
+            'is_stuck': progress.is_stuck(),
+            'time_since_last_attempt': time_since_last_attempt
+        }
+
         # Generate hint
         hint_content = self.openrouter_service.generate_hint(
             problem_description=problem.description,
             user_code=user_code,
             previous_hints=previous_hints_text,
-            hint_level=progress.current_hint_level
+            hint_level=progress.current_hint_level,
+            user_progress=user_progress_data
         )
 
         # Create hint
@@ -118,7 +139,9 @@ class HintViewSet(viewsets.ViewSet):
         evaluation = self.openrouter_service.evaluate_hint(
             hint_content=hint_content,
             problem_description=problem.description,
-            user_code=user_code
+            user_code=user_code,
+            user_progress=user_progress_data,
+            previous_hints=previous_hints_text
         )
 
         # Create evaluation record
@@ -150,12 +173,7 @@ class HintViewSet(viewsets.ViewSet):
                 'pedagogical_value_score': evaluation['pedagogical_value_score']
             },
             'attempt_id': attempt.id,
-            'user_progress': {
-                'attempts_count': progress.attempts_count,
-                'failed_attempts_count': progress.failed_attempts_count,
-                'current_hint_level': progress.current_hint_level,
-                'is_stuck': progress.is_stuck()
-            }
+            'user_progress': user_progress_data
         })
 
     @action(detail=False, methods=['post'])

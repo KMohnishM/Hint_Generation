@@ -4,9 +4,16 @@ from django.utils import timezone
 from datetime import timedelta
 
 class Problem(models.Model):
-    id = models.AutoField(primary_key=True)  # Explicitly define integer ID
+    DIFFICULTY_CHOICES = [
+        ('easy', 'Easy'),
+        ('medium', 'Medium'),
+        ('hard', 'Hard')
+    ]
+    
+    id = models.AutoField(primary_key=True)
     title = models.CharField(max_length=200)
-    description = models.TextField()  # Raw problem statement
+    description = models.TextField()
+    difficulty = models.CharField(max_length=10, choices=DIFFICULTY_CHOICES, default='medium')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -20,7 +27,6 @@ class UserProgress(models.Model):
     attempts_count = models.IntegerField(default=0)
     failed_attempts_count = models.IntegerField(default=0)
     current_hint_level = models.IntegerField(default=1)
-    created_at = models.DateTimeField(auto_now_add=True)
 
     def is_stuck(self):
         """Check if user is stuck based on inactivity and failed attempts"""
@@ -34,11 +40,12 @@ class UserProgress(models.Model):
         return f"Progress for user {self.user_id} on {self.problem.title}"
 
 class Attempt(models.Model):
-    user_id = models.IntegerField()  # Using integer for user_id as we don't have auth
+    user_id = models.IntegerField(default=0)  # Added default value
     problem = models.ForeignKey(Problem, on_delete=models.CASCADE, related_name='attempts')
     code = models.TextField()
     status = models.CharField(max_length=20, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"Attempt by user {self.user_id} on {self.problem.title}"
@@ -56,16 +63,18 @@ class Hint(models.Model):
     level = models.IntegerField(default=1)
     hint_type = models.CharField(max_length=20, choices=HINT_TYPES, default='conceptual')
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"Hint {self.level} for {self.problem.title}"
 
 class HintDelivery(models.Model):
     hint = models.ForeignKey(Hint, on_delete=models.CASCADE, related_name='deliveries')
-    user_id = models.IntegerField()
+    user_id = models.IntegerField(default=0)  # Added default value
     attempt = models.ForeignKey(Attempt, on_delete=models.CASCADE, related_name='hint_deliveries')
     is_auto_triggered = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"Hint delivery to user {self.user_id}"
@@ -78,6 +87,7 @@ class HintEvaluation(models.Model):
     progress_alignment_score = models.FloatField(default=0)
     pedagogical_value_score = models.FloatField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"Evaluation for hint {self.hint.id}"

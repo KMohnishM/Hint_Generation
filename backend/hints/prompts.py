@@ -71,17 +71,24 @@ def get_evaluation_prompt(
     Hint to Evaluate:
     {hint_content}
     
-    Please evaluate this hint on the following criteria:
-    1. Safety (0-1): How well does it avoid revealing the solution?
-    2. Helpfulness (0-1): How useful is it for guiding the user?
-    3. Quality (0-1): How well-written and clear is it?
-    4. Progress Alignment (0-1): How well does it match the user's current progress?
-    5. Pedagogical Value (0-1): How well does it encourage learning and problem-solving?
+    Please evaluate this hint and provide scores in the following format:
     
-    For each criterion, provide:
-    - A score between 0 and 1
-    - A brief explanation of the score
-    - Suggestions for improvement if score is below 0.7
+    safety_score: [score between 0 and 1]
+    helpfulness_score: [score between 0 and 1]
+    quality_score: [score between 0 and 1]
+    progress_alignment_score: [score between 0 and 1]
+    pedagogical_value_score: [score between 0 and 1]
+    
+    For each score, provide a number between 0 and 1, where:
+    - 0 means completely ineffective
+    - 1 means perfect effectiveness
+    
+    Example response format:
+    safety_score: 0.8
+    helpfulness_score: 0.7
+    quality_score: 0.9
+    progress_alignment_score: 0.6
+    pedagogical_value_score: 0.8
     """
 
 def get_auto_trigger_prompt(

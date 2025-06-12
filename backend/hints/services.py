@@ -1,12 +1,16 @@
 import os
 import requests
+import logging
 from django.conf import settings
 from typing import Dict, Any, Optional, List, Tuple
 from .prompts import get_hint_prompt, get_evaluation_prompt, get_auto_trigger_prompt
 
+logger = logging.getLogger(__name__)
+
 class OpenRouterService:
     def __init__(self):
         self.api_key = settings.OPENROUTER_API_KEY
+        logger.debug(f"OpenRouter API Key present: {bool(self.api_key)}")
         self.base_url = "https://openrouter.ai/api/v1"
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -16,17 +20,19 @@ class OpenRouterService:
     def _make_api_call(self, prompt: str) -> str:
         """Make API call to OpenRouter"""
         try:
+            logger.debug("Making API call to OpenRouter")
             response = requests.post(
                 f"{self.base_url}/chat/completions",
                 headers=self.headers,
                 json={
-                    "model": "anthropic/claude-3-opus-20240229",
+                    "model": "deepseek/deepseek-r1-0528-qwen3-8b:free",
                     "messages": [{"role": "user", "content": prompt}]
                 }
             )
             response.raise_for_status()
             return response.json()["choices"][0]["message"]["content"]
         except Exception as e:
+            logger.error(f"OpenRouter API call failed: {str(e)}")
             raise Exception(f"OpenRouter API call failed: {str(e)}")
 
     def generate_hint(
@@ -69,21 +75,34 @@ class OpenRouterService:
         
         # Parse the evaluation response
         scores = {}
-        current_criterion = None
-        
         for line in response.split('\n'):
             line = line.strip()
             if not line:
                 continue
-                
-            if line.startswith(('1.', '2.', '3.', '4.', '5.')):
-                current_criterion = line.split('.')[1].strip().lower()
-            elif current_criterion and ':' in line:
+            
+            if ':' in line:
+                key, value = line.split(':', 1)
+                key = key.strip().lower()
                 try:
-                    score = float(line.split(':')[1].strip())
-                    scores[current_criterion] = score
+                    score = float(value.strip())
+                    if 0 <= score <= 1:  # Ensure score is between 0 and 1
+                        scores[key] = score
                 except (ValueError, IndexError):
                     continue
+        
+        # Ensure all required scores are present
+        required_scores = [
+            'safety_score',
+            'helpfulness_score',
+            'quality_score',
+            'progress_alignment_score',
+            'pedagogical_value_score'
+        ]
+        
+        # Set default score of 0.5 for any missing scores
+        for score in required_scores:
+            if score not in scores:
+                scores[score] = 0.5
         
         return scores
 
