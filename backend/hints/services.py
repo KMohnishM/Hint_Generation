@@ -34,7 +34,8 @@ class OpenRouterService:
         except Exception as e:
             logger.error(f"OpenRouter API call failed: {str(e)}")
             raise Exception(f"OpenRouter API call failed: {str(e)}")
-
+    
+    
     def generate_hint(
         self,
         problem_description: str,

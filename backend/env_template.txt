@@ -1,0 +1,13 @@
+# OpenRouter API Configuration
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+
+# LangSmith Configuration
+# Get your API key from: https://smith.langchain.com/settings
+LANGCHAIN_API_KEY=your_langsmith_api_key_here
+LANGSMITH_PROJECT=hg
+LANGSMITH_TRACING_V2=true
+LANGSMITH_ENDPOINT=https://api.smith.langchain.com
+
+# Django Configuration
+DEBUG=True
+SECRET_KEY=your_django_secret_key_here 

@@ -22,11 +22,11 @@ def get_hint_prompt(
 
     # Log user progress being sent to LLM
     logger.info("\n=== User Progress Being Sent to LLM ===")
-    logger.info(f"Total Attempts: {user_progress['attempts_count']}")
-    logger.info(f"Failed Attempts: {user_progress['failed_attempts_count']}")
-    logger.info(f"Current Hint Level: {user_progress['current_hint_level']}")
-    logger.info(f"Time Since Last Attempt: {user_progress['time_since_last_attempt']} seconds")
-    logger.info(f"Is Stuck: {user_progress['is_stuck']}")
+    logger.info(f"Total Attempts: {user_progress.get('attempts_count', 0)}")
+    logger.info(f"Failed Attempts: {user_progress.get('failed_attempts_count', 0)}")
+    logger.info(f"Current Hint Level: {user_progress.get('current_hint_level', 1)}")
+    logger.info(f"Time Since Last Attempt: {user_progress.get('time_since_last_attempt', 0)} seconds")
+    logger.info(f"Is Stuck: {user_progress.get('is_stuck', False)}")
     logger.info("-" * 50)
 
     return f"""
@@ -36,10 +36,10 @@ def get_hint_prompt(
     {user_code}
     
     User Progress:
-    - Total Attempts: {user_progress['attempts_count']}
-    - Failed Attempts: {user_progress['failed_attempts_count']}
-    - Current Hint Level: {user_progress['current_hint_level']}
-    - Time Since Last Attempt: {user_progress['time_since_last_attempt']} seconds
+    - Total Attempts: {user_progress.get('attempts_count', 0)}
+    - Failed Attempts: {user_progress.get('failed_attempts_count', 0)}
+    - Current Hint Level: {user_progress.get('current_hint_level', 1)}
+    - Time Since Last Attempt: {user_progress.get('time_since_last_attempt', 0)} seconds
     
     Previous Hints Given:
     {previous_hints}
@@ -88,10 +88,10 @@ def get_evaluation_prompt(
     {user_code}
     
     User Progress:
-    - Total Attempts: {user_progress['attempts_count']}
-    - Failed Attempts: {user_progress['failed_attempts_count']}
-    - Current Hint Level: {user_progress['current_hint_level']}
-    - Time Since Last Attempt: {user_progress['time_since_last_attempt']} seconds
+    - Total Attempts: {user_progress.get('attempts_count', 0)}
+    - Failed Attempts: {user_progress.get('failed_attempts_count', 0)}
+    - Current Hint Level: {user_progress.get('current_hint_level', 1)}
+    - Time Since Last Attempt: {user_progress.get('time_since_last_attempt', 0)} seconds
     
     Previous Hints:
     {previous_hints}
@@ -142,15 +142,15 @@ def get_auto_trigger_prompt(
     {user_code}
     
     User Progress:
-    - Total Attempts: {user_progress['attempts_count']}
-    - Failed Attempts: {user_progress['failed_attempts_count']}
-    - Current Hint Level: {user_progress['current_hint_level']}
-    - Time Since Last Attempt: {user_progress['time_since_last_attempt']} seconds
+    - Total Attempts: {user_progress.get('attempts_count', 0)}
+    - Failed Attempts: {user_progress.get('failed_attempts_count', 0)}
+    - Current Hint Level: {user_progress.get('current_hint_level', 1)}
+    - Time Since Last Attempt: {user_progress.get('time_since_last_attempt', 0)} seconds
     
     Last Attempt:
-    - Status: {last_attempt['status']}
-    - Error Message: {last_attempt['error_message']}
-    - Test Cases Passed: {last_attempt['test_cases_passed']}/{last_attempt['total_test_cases']}
+    - Status: {last_attempt.get('status', 'unknown')}
+    - Error Message: {last_attempt.get('error_message', 'none')}
+    - Test Cases Passed: {last_attempt.get('test_cases_passed', 0)}/{last_attempt.get('total_test_cases', 0)}
     
     Please analyze if the user needs a hint based on:
     1. Time since last activity

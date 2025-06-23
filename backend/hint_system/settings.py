@@ -11,6 +11,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-your-secret-key-here'
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
+
+# LangSmith Configuration
+LANGSMITH_API_KEY = os.getenv('LANGCHAIN_API_KEY')
+LANGSMITH_PROJECT = os.getenv('LANGSMITH_PROJECT', 'hg')
+LANGSMITH_ENDPOINT = os.getenv('LANGSMITH_ENDPOINT', 'https://api.smith.langchain.com')
+# Check both possible environment variable names for tracing
+LANGSMITH_TRACING_V2 = (
+    os.getenv('LANGSMITH_TRACING_V2', 'false').lower() == 'true' or
+    os.getenv('LANGCHAIN_TRACING_V2', 'false').lower() == 'true'
+)
+
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
@@ -123,20 +134,52 @@ CHANNEL_LAYERS = {
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+        'detailed': {
+            'format': '[{asctime}] {levelname} {name} {message}',
+            'style': '{',
+        },
+    },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
+            'formatter': 'detailed',
+            'level': 'DEBUG',
+        },
+        'file': {
+            'class': 'logging.FileHandler',
+            'filename': 'django.log',
+            'formatter': 'detailed',
+            'level': 'DEBUG',
         },
     },
     'root': {
-        'handlers': ['console'],
-        'level': 'DEBUG',
+        'handlers': ['console', 'file'],
+        'level': 'INFO',
     },
     'loggers': {
         'hints': {
-            'handlers': ['console'],
+            'handlers': ['console', 'file'],
             'level': 'DEBUG',
-            'propagate': True,
+            'propagate': False,
+        },
+        'django': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'langchain': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': False,
         },
     },
 } 
