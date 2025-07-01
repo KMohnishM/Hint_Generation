@@ -247,8 +247,9 @@ class HintViewSet(viewsets.ViewSet):
         )
         logger.info(f"📝 Created hint delivery record (ID: {hint_delivery.id})")
 
-        # Prepare response
+        # Prepare response in the requested format
         response_data = {
+            'status': 'success' if result['attempt_evaluation']['success'] else 'failed',
             'hint': {
                 'id': hint.id,
                 'content': result['generated_hint'],
@@ -257,6 +258,12 @@ class HintViewSet(viewsets.ViewSet):
             },
             'evaluation': result['hint_evaluation'],
             'attempt_id': attempt.id,
+            'attempt_evaluation': {
+                'success': result['attempt_evaluation']['success'],
+                'reason': result['attempt_evaluation']['reason'],
+                'complexity': result['attempt_evaluation']['complexity'],
+                'edge_cases': result['attempt_evaluation']['edge_cases']
+            },
             'user_progress': {
                 'attempts_count': progress.attempts_count,
                 'failed_attempts_count': progress.failed_attempts_count,
