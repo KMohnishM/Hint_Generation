@@ -12,6 +12,7 @@ class Problem(models.Model):
     
     id = models.AutoField(primary_key=True)
     title = models.CharField(max_length=200)
+    problem_id = models.IntegerField(unique=True, null=True, blank=True)  # User-provided problem ID
     description = models.TextField()
     difficulty = models.CharField(max_length=10, choices=DIFFICULTY_CHOICES, default='medium')
     created_at = models.DateTimeField(auto_now_add=True)

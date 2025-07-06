@@ -15,6 +15,7 @@ class HintViewSet(viewsets.ViewSet):
 
     def _get_or_create_problem(self, problem_id, problem_data=None):
         """Get existing problem or create new one if needed"""
+<<<<<<< Updated upstream
         try:
             # First try to get existing problem
             problem = Problem.objects.get(id=problem_id)
@@ -29,6 +30,32 @@ class HintViewSet(viewsets.ViewSet):
                 )
                 return problem
             return None
+=======
+        logger.info(f"🔍 Looking up problem with ID: {problem_id}")
+        
+        # First try to get existing problem by user-provided problem_id
+        try:
+            problem = Problem.objects.get(problem_id=problem_id)
+            logger.info(f"✅ Found existing problem by problem_id: {problem.title}")
+            return problem
+        except Problem.DoesNotExist:
+            logger.info(f"❌ Problem {problem_id} not found by problem_id")
+        
+        # If problem doesn't exist and we have problem data, create it
+        if problem_data:
+            logger.info("📝 Creating new problem from provided data")
+            problem = Problem.objects.create(
+                problem_id=problem_id,  # Store the user-provided problem_id
+                title=problem_data.get('title', 'Untitled Problem'),
+                description=problem_data.get('description', ''),
+                difficulty='medium'  # Set a default difficulty
+            )
+            logger.info(f"✅ Created new problem: {problem.title} (problem_id: {problem.problem_id}, db_id: {problem.id})")
+            return problem
+        
+        logger.warning("⚠️  No problem data provided and problem not found")
+        return None
+>>>>>>> Stashed changes
 
     def _get_user_progress(self, user_id, problem):
         """Get or create user progress"""
@@ -171,7 +198,58 @@ class HintViewSet(viewsets.ViewSet):
         progress.last_activity = timezone.now()
         progress.save()
 
+<<<<<<< Updated upstream
         # Create attempt record with evaluation details
+=======
+        # Escalate hint level if user is inactive for 5+ minutes
+        if time_since_last_attempt > 300:
+            logger.info("⏫ User inactive for 5+ minutes, escalating hint level")
+            progress.current_hint_level = min(progress.current_hint_level + 1, 5)
+            progress.save()
+
+        # Get previous hints (last 5)
+        previous_hints = list(self._get_previous_hints(user_id, problem)[:5])
+        previous_hints_text = [hint.hint.content for hint in previous_hints]
+
+        # Prepare input for the chain
+        chain_input = {
+            "problem_description": problem.description,
+            "user_code": user_code,
+            "attempts_count": progress.attempts_count,
+            "failed_attempts_count": progress.failed_attempts_count,
+            "current_hint_level": progress.current_hint_level,
+            "time_since_last_attempt": time_since_last_attempt,
+            "previous_hints": previous_hints_text,
+            "hint_level": progress.current_hint_level,
+            "hint_type": "conceptual",
+            "user_id": user_id,
+            "problem_id": problem.id
+        }
+
+        # Run the full workflow chain
+        logger.info("🔄 Running HintChain workflow...")
+        result = self.hint_chain.process_hint_request(chain_input)
+
+        # Get updated hint level and type from the chain result
+        new_hint_level = result.get('updated_hint_level', progress.current_hint_level)
+        new_hint_type = result.get('updated_hint_type', 'conceptual')
+
+        # Check for duplicate hint (avoid delivering same hint as last time)
+        if previous_hints_text and result['generated_hint'].strip() == previous_hints_text[0].strip():
+            logger.warning("⚠️  Generated hint is a duplicate of the last delivered hint. Regenerating once...")
+            # Try regenerating once
+            result = self.hint_chain.process_hint_request(chain_input)
+            if result['generated_hint'].strip() == previous_hints_text[0].strip():
+                logger.warning("⚠️  Still duplicate after regeneration. Delivering as is.")
+
+        # Update user progress with new hint level
+        if new_hint_level != progress.current_hint_level:
+            logger.info(f"📈 Updating hint level: {progress.current_hint_level} → {new_hint_level}")
+            progress.current_hint_level = new_hint_level
+            progress.save()
+
+        # Create attempt record
+>>>>>>> Stashed changes
         attempt = Attempt.objects.create(
             user_id=user_id,
             problem=problem,
