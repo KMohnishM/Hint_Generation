@@ -13,6 +13,10 @@ import re
 from langchain_core.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnableLambda, RunnableSequence
+
+# LangSmith imports for tracing
+from langchain_core.tracers import LangChainTracer
 
 from .models import Problem, Attempt, Hint, UserProgress
 
@@ -28,6 +32,16 @@ class RAGService:
         logger.info("🚀 Initializing RAG Service...")
         
         self.api_key = settings.OPENROUTER_API_KEY
+        
+        # Configure LangSmith for tracing (same as hint_chain.py)
+        if settings.LANGSMITH_API_KEY:
+            os.environ["LANGCHAIN_API_KEY"] = settings.LANGSMITH_API_KEY
+            os.environ["LANGCHAIN_PROJECT"] = settings.LANGSMITH_PROJECT
+            os.environ["LANGCHAIN_TRACING_V2"] = str(settings.LANGSMITH_TRACING_V2)
+            os.environ["LANGCHAIN_ENDPOINT"] = settings.LANGSMITH_ENDPOINT
+            logger.info("✅ LangSmith configured for RAG tracing")
+        else:
+            logger.warning("⚠️ LangSmith API key not found, RAG tracing disabled")
         
         # Initialize LLM for RAG-enhanced hint generation
         self.rag_llm = ChatOpenAI(
@@ -48,15 +62,13 @@ class RAGService:
         self.problem_embeddings = {}
         self.problem_texts = {}
         
-        # Build RAG chains
+        # Build RAG chains with tracing
         self._build_rag_chains()
         
         logger.info("✅ RAG Service initialized successfully")
     
     def _build_rag_chains(self):
-        """Build RAG-enhanced hint generation chain"""
-        
-        # RAG-enhanced hint generation prompt
+        """Build RAG-enhanced hint generation chain with RAG retrieval steps as runnables"""
         self.rag_hint_prompt = PromptTemplate.from_template("""
         Problem Description: {problem_description}
         
@@ -84,7 +96,7 @@ class RAGService:
         Common Error Patterns (from similar problems):
         {error_patterns}
         
-        Please generate a hint that:
+        Please generate a comprehensive, detailed hint that:
         1. Is non-revealing (doesn't give away the solution)
         2. Is appropriate for hint level {hint_level} and type {hint_type}
         3. Builds upon previous hints and user's progress
@@ -93,20 +105,72 @@ class RAGService:
         6. Is specific to their current code and approach
         7. Provides pedagogical value by encouraging problem-solving skills
         8. Leverages the user's learning history and patterns
+        9. Includes specific examples or edge cases when appropriate
+        10. Explains the reasoning behind the hint when helpful
         
         The hint should be:
-        - More conceptual for early levels
-        - More specific for higher levels
-        - Focused on the current hint type
+        - More conceptual for early levels (1-2)
+        - More specific for higher levels (3-5)
+        - Focused on the current hint type (conceptual/approach/implementation/debug)
         - Aligned with the user's learning progress
         - Enhanced with context from similar problems
+        - Detailed enough to provide real value (aim for 200-400 characters)
+        - Specific to the user's current approach and code structure
+        
+        Consider the user's learning patterns and provide a hint that will help them understand the underlying concepts while guiding them toward the solution.
         
         Provide only the hint content, no additional formatting.
         """)
-        
-        self.rag_hint_chain = (
-            self.rag_hint_prompt 
-            | self.rag_llm 
+
+        # Runnables for RAG retrieval steps
+        def similar_problems_step(inputs):
+            current_problem = inputs["current_problem"]
+            user_id = inputs["user_id"]
+            return self._find_similar_problems(current_problem, user_id)
+        def user_solutions_step(inputs):
+            user_id = inputs["user_id"]
+            similar_problems = inputs["similar_problems"]
+            return self._get_user_previous_solutions(user_id, similar_problems)
+        def error_patterns_step(inputs):
+            similar_problems = inputs["similar_problems"]
+            user_id = inputs["user_id"]
+            return self._get_error_patterns(similar_problems, user_id)
+        def build_contexts_step(inputs):
+            return {
+                "similar_problems_context": self._build_similar_problems_context(inputs["similar_problems"]),
+                "user_previous_solutions": self._build_user_solutions_context(inputs["user_solutions"]),
+                "error_patterns": self._build_error_patterns_context(inputs["error_patterns"]),
+            }
+
+        self.similar_problems_runnable = RunnableLambda(similar_problems_step).with_config({"run_name": "RAG-Similar-Problems-Retrieval"})
+        self.user_solutions_runnable = RunnableLambda(user_solutions_step).with_config({"run_name": "RAG-User-Solutions-Retrieval"})
+        self.error_patterns_runnable = RunnableLambda(error_patterns_step).with_config({"run_name": "RAG-Error-Patterns-Retrieval"})
+        self.build_contexts_runnable = RunnableLambda(build_contexts_step).with_config({"run_name": "RAG-Build-Contexts"})
+
+        # Compose the full RAG chain as a RunnableSequence
+        def rag_chain_sequence(inputs):
+            # Step 1: Find similar problems
+            similar_problems = self._find_similar_problems(inputs["current_problem"], inputs["user_id"])
+            # Step 2: Get user solutions
+            user_solutions = self._get_user_previous_solutions(inputs["user_id"], similar_problems)
+            # Step 3: Get error patterns
+            error_patterns = self._get_error_patterns(similar_problems, inputs["user_id"])
+            # Step 4: Build context strings
+            contexts = {
+                "similar_problems_context": self._build_similar_problems_context(similar_problems),
+                "user_previous_solutions": self._build_user_solutions_context(user_solutions),
+                "error_patterns": self._build_error_patterns_context(error_patterns),
+            }
+            return {
+                **inputs,
+                **contexts,
+            }
+        self.rag_retrieval_chain = RunnableLambda(rag_chain_sequence).with_config({"run_name": "RAG-Retrieval-Sequence"})
+
+        self.full_rag_chain = (
+            self.rag_retrieval_chain
+            | self.rag_hint_prompt
+            | self.rag_llm
             | StrOutputParser()
         )
     
@@ -219,7 +283,7 @@ class RAGService:
                 problem=problem,
                 user_id=user_id,
                 status='failed'
-            )[:5]  # Limit to recent failed attempts
+            )[:10]  # Increased limit for more comprehensive analysis
             
             logger.debug(f"   - Found {failed_attempts.count()} failed attempts for {problem.title}")
             
@@ -231,15 +295,27 @@ class RAGService:
                             eval_data = json.loads(eval_data)
                         
                         reason = eval_data.get('reason', '')
+                        error_pattern = eval_data.get('error_pattern', '')
+                        error_category = eval_data.get('error_category', '')
+                        
+                        # Combine all error information for richer context
+                        error_info = []
                         if reason:
-                            error_patterns.append(reason)
-                            logger.debug(f"     - Error pattern: {reason[:100]}...")
+                            error_info.append(reason)
+                        if error_pattern:
+                            error_info.append(f"Pattern: {error_pattern}")
+                        if error_category:
+                            error_info.append(f"Category: {error_category}")
+                        
+                        if error_info:
+                            error_patterns.append(" | ".join(error_info))
+                            logger.debug(f"     - Error pattern: {' | '.join(error_info)[:100]}...")
                     except Exception as e:
                         logger.warning(f"Error parsing evaluation details: {e}")
                         continue
         
-        # Remove duplicates and limit
-        unique_patterns = list(set(error_patterns))[:5]
+        # Remove duplicates and limit to more patterns for richer context
+        unique_patterns = list(set(error_patterns))[:8]
         
         logger.info(f"✅ Found {len(unique_patterns)} unique error patterns from user {user_id}'s history")
         return unique_patterns
@@ -286,40 +362,21 @@ class RAGService:
         user_id: int = None,
         problem_id: int = None
     ) -> str:
-        """Generate RAG-enhanced hint using similar problems and user history"""
-        
+        """Generate RAG-enhanced hint using similar problems and user history, with RAG steps as runnables for tracing"""
         logger.info("🎯 Generating RAG-enhanced hint...")
-        
         try:
             # Get current problem
             if problem_id:
                 current_problem = Problem.objects.get(id=problem_id)
             else:
-                # Try to find problem by description
                 current_problem = Problem.objects.filter(
                     description__icontains=problem_description[:100]
                 ).first()
-            
             if not current_problem:
                 logger.warning("Could not identify current problem, falling back to basic hint generation")
                 return self._generate_basic_hint(problem_description, user_code, previous_hints, hint_level, user_progress, hint_type)
-            
-            # Find similar problems
-            similar_problems = self._find_similar_problems(current_problem, user_id or 0)
-            
-            # Get user's previous solutions
-            user_solutions = self._get_user_previous_solutions(user_id or 0, similar_problems)
-            
-            # Get error patterns from user's attempts
-            error_patterns = self._get_error_patterns(similar_problems, user_id)
-            
-            # Build context strings
-            similar_problems_context = self._build_similar_problems_context(similar_problems)
-            user_solutions_context = self._build_user_solutions_context(user_solutions)
-            error_patterns_context = self._build_error_patterns_context(error_patterns)
-            
-            # Prepare inputs for RAG chain
-            inputs = {
+            # Prepare inputs for the full chain
+            chain_inputs = {
                 "problem_description": problem_description,
                 "user_code": user_code,
                 "attempts_count": user_progress.get('attempts_count', 0),
@@ -329,20 +386,14 @@ class RAGService:
                 "previous_hints": "\n".join([h if isinstance(h, str) else h.get('content', str(h)) for h in previous_hints]),
                 "hint_level": hint_level,
                 "hint_type": hint_type,
-                "similar_problems_context": similar_problems_context,
-                "user_previous_solutions": user_solutions_context,
-                "error_patterns": error_patterns_context
+                "user_id": user_id,
+                "current_problem": current_problem,
             }
-            
-            # Generate RAG-enhanced hint
-            rag_hint = self.rag_hint_chain.invoke(inputs)
-            
+            rag_hint = self.full_rag_chain.invoke(chain_inputs)
             logger.info(f"✅ Generated RAG-enhanced hint: {len(rag_hint)} characters")
             return rag_hint
-            
         except Exception as e:
             logger.error(f"❌ Error in RAG-enhanced hint generation: {e}")
-            # Fallback to basic hint generation
             return self._generate_basic_hint(problem_description, user_code, previous_hints, hint_level, user_progress, hint_type)
     
     def _generate_basic_hint(

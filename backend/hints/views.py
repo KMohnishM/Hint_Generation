@@ -4,33 +4,23 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.utils import timezone
 from datetime import timedelta
+import logging
+import json
 
 from .models import Problem, Hint, Attempt, HintDelivery, HintEvaluation, UserProgress
-from .services import OpenRouterService
+from .hint_chain import HintChain
+
+logger = logging.getLogger(__name__)
 
 class HintViewSet(viewsets.ViewSet):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.openrouter_service = OpenRouterService()
+        logger.info("🚀 Initializing HintViewSet...")
+        self.hint_chain = HintChain()
+        logger.info("✅ HintViewSet initialized successfully")
 
     def _get_or_create_problem(self, problem_id, problem_data=None):
         """Get existing problem or create new one if needed"""
-<<<<<<< Updated upstream
-        try:
-            # First try to get existing problem
-            problem = Problem.objects.get(id=problem_id)
-            return problem
-        except Problem.DoesNotExist:
-            # If problem doesn't exist and we have problem data, create it
-            if problem_data:
-                problem = Problem.objects.create(
-                    title=problem_data.get('title', 'Untitled Problem'),
-                    description=problem_data.get('description', ''),
-                    difficulty='medium'  # Set a default difficulty
-                )
-                return problem
-            return None
-=======
         logger.info(f"🔍 Looking up problem with ID: {problem_id}")
         
         # First try to get existing problem by user-provided problem_id
@@ -55,16 +45,19 @@ class HintViewSet(viewsets.ViewSet):
         
         logger.warning("⚠️  No problem data provided and problem not found")
         return None
->>>>>>> Stashed changes
 
     def _get_user_progress(self, user_id, problem):
         """Get or create user progress"""
+        logger.info(f"👤 Getting user progress for user {user_id} on problem {problem.id}")
         try:
             progress = UserProgress.objects.get(
                 user_id=user_id,
                 problem=problem
             )
+            logger.info(f"✅ Found existing progress: {progress.attempts_count} attempts, {progress.failed_attempts_count} failed")
+            return progress
         except UserProgress.DoesNotExist:
+            logger.info("📝 Creating new user progress record")
             progress = UserProgress.objects.create(
                 user_id=user_id,
                 problem=problem,
@@ -72,95 +65,69 @@ class HintViewSet(viewsets.ViewSet):
                 failed_attempts_count=0,
                 current_hint_level=1
             )
-        return progress
+            logger.info(f"✅ Created new progress record for user {user_id}")
+            return progress
 
     def _get_previous_hints(self, user_id, problem):
         """Get previous hints for this user and problem"""
-        return HintDelivery.objects.filter(
+        logger.info(f"📚 Getting previous hints for user {user_id} on problem {problem.id}")
+        hints = HintDelivery.objects.filter(
             user_id=user_id,
             hint__problem=problem
         ).select_related('hint').order_by('-created_at')
+        logger.info(f"✅ Found {hints.count()} previous hints")
+        return hints
 
     def _get_previous_attempts(self, user_id, problem):
-        """Get previous attempts for this user and problem"""
-        return Attempt.objects.filter(
+        """Get previous attempts for the user on this problem"""
+        attempts = Attempt.objects.filter(
             user_id=user_id,
             problem=problem
         ).order_by('-created_at')
+        logger.info(f"✅ Found {attempts.count()} previous attempts")
+        return attempts
 
-    def _get_next_hint_level(self, progress: UserProgress, attempt_evaluation: dict) -> int:
-        """
-        Determine the next hint level based on user progress and attempt evaluation.
-        Hint levels:
-        1. Conceptual (Basic understanding)
-        2. Approach (Problem-solving strategy)
-        3. Implementation (Code structure)
-        4. Debug (Specific issues)
-        5. Solution (Almost complete solution)
-        """
-        current_level = progress.current_hint_level
+    def _create_attempt(self, user_id: int, problem: Problem, user_code: str) -> Attempt:
+        """Create an attempt record for the user"""
+        logger.info(f"📝 Creating attempt record for user {user_id} on problem {problem.id}")
         
-        # If user has made multiple failed attempts, increase hint level
-        if progress.failed_attempts_count >= 3:
-            return min(current_level + 1, 5)
-            
-        # If user is stuck (inactive for 5+ minutes), increase hint level
-        if progress.is_stuck():
-            return min(current_level + 1, 5)
-            
-        # If attempt evaluation shows specific issues, adjust level accordingly
-        if attempt_evaluation.get('edge_cases'):
-            # If missing edge cases, focus on implementation level
-            return max(3, current_level)
-            
-        # If code has complexity issues, focus on approach level
-        if 'complexity' in attempt_evaluation.get('reason', '').lower():
-            return max(2, current_level)
-            
-        # If basic logic issues, focus on conceptual level
-        if 'logic' in attempt_evaluation.get('reason', '').lower():
-            return max(1, current_level)
-            
-        # Default: stay at current level
-        return current_level
-
-    def _get_hint_type(self, hint_level: int, attempt_evaluation: dict) -> str:
-        """
-        Determine the hint type based on hint level and attempt evaluation.
-        Hint types:
-        - conceptual: Basic understanding (level 1)
-        - approach: Problem-solving strategy (level 2)
-        - implementation: Code structure (level 3)
-        - debug: Specific issues (level 4)
-        """
-        # If there are specific issues in the code, use debug type
-        if attempt_evaluation.get('edge_cases') or 'error' in attempt_evaluation.get('reason', '').lower():
-            return 'debug'
-            
-        # If there are complexity issues, use approach type
-        if 'complexity' in attempt_evaluation.get('reason', '').lower():
-            return 'approach'
-            
-        # Map hint levels to types
-        hint_type_map = {
-            1: 'conceptual',
-            2: 'approach',
-            3: 'implementation',
-            4: 'debug',
-            5: 'debug'  # Level 5 is also debug as it's for specific issues
-        }
+        # Evaluate the attempt
+        attempt_evaluation = self.hint_chain.evaluate_attempt_only(
+            problem_description=problem.description,
+            user_code=user_code
+        )
         
-        return hint_type_map.get(hint_level, 'conceptual')
+        # Create attempt record
+        attempt = Attempt.objects.create(
+            user_id=user_id,
+            problem=problem,
+            code=user_code,
+            status='failed' if not attempt_evaluation['success'] else 'success',
+            evaluation_details=attempt_evaluation
+        )
+        
+        logger.info(f"✅ Created attempt record (ID: {attempt.id}, Status: {attempt.status})")
+        return attempt
 
     @action(detail=False, methods=['post'])
     def request_hint(self, request):
         """Request a hint for a problem"""
+        logger.info("🎯 Received hint request")
+        logger.info(f"📥 Request data: {json.dumps(request.data, indent=2)}")
+        
         user_id = request.data.get('user_id')
         problem_id = request.data.get('problem_id')
         user_code = request.data.get('user_code')
         problem_data = request.data.get('problem_data')
 
+        logger.info(f"📋 Request parameters:")
+        logger.info(f"   - User ID: {user_id}")
+        logger.info(f"   - Problem ID: {problem_id}")
+        logger.info(f"   - User code length: {len(user_code) if user_code else 0} characters")
+        logger.info(f"   - Problem data provided: {'✅ Yes' if problem_data else '❌ No'}")
+
         if not all([user_id, problem_id, user_code]):
+            logger.error("❌ Missing required fields in request")
             return Response(
                 {'error': 'Missing required fields'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -169,6 +136,7 @@ class HintViewSet(viewsets.ViewSet):
         # Get or create problem
         problem = self._get_or_create_problem(problem_id, problem_data)
         if not problem:
+            logger.error("❌ Problem not found and no problem data provided")
             return Response(
                 {'error': 'Problem not found and no problem data provided'},
                 status=status.HTTP_404_NOT_FOUND
@@ -179,28 +147,17 @@ class HintViewSet(viewsets.ViewSet):
         
         # Increment attempts count
         progress.attempts_count += 1
-        
-        # Evaluate the attempt using LLM
-        attempt_evaluation = self.openrouter_service.evaluate_attempt(
-            problem_description=problem.description,
-            user_code=user_code
-        )
-        
-        # Update failed attempts count if attempt was unsuccessful
-        if not attempt_evaluation['success']:
-            progress.failed_attempts_count += 1
+        logger.info(f"📈 Incremented attempts count: {progress.attempts_count}")
         
         # Calculate time since last attempt
         time_since_last_attempt = 0
         if progress.last_activity:
             time_since_last_attempt = (timezone.now() - progress.last_activity).total_seconds()
-        
+            logger.info(f"⏱️  Time since last attempt: {time_since_last_attempt:.2f} seconds")
         progress.last_activity = timezone.now()
         progress.save()
+        logger.info("💾 User progress saved")
 
-<<<<<<< Updated upstream
-        # Create attempt record with evaluation details
-=======
         # Escalate hint level if user is inactive for 5+ minutes
         if time_since_last_attempt > 300:
             logger.info("⏫ User inactive for 5+ minutes, escalating hint level")
@@ -249,115 +206,84 @@ class HintViewSet(viewsets.ViewSet):
             progress.save()
 
         # Create attempt record
->>>>>>> Stashed changes
         attempt = Attempt.objects.create(
             user_id=user_id,
             problem=problem,
             code=user_code,
-            status='failed' if not attempt_evaluation['success'] else 'success',
-            evaluation_details=attempt_evaluation
+            status='failed' if not result['attempt_evaluation']['success'] else 'success',
+            evaluation_details=result['attempt_evaluation']
         )
+        logger.info(f"📝 Created attempt record (ID: {attempt.id}, Status: {attempt.status})")
 
-        # If the attempt was successful, return success response without generating a hint
-        if attempt_evaluation['success']:
-            return Response({
-                'status': 'success',
-                'message': 'Your solution is correct!',
-                'attempt_evaluation': attempt_evaluation,
-                'user_progress': {
-                    'attempts_count': progress.attempts_count,
-                    'failed_attempts_count': progress.failed_attempts_count,
-                    'current_hint_level': progress.current_hint_level,
-                    'is_stuck': progress.is_stuck(),
-                    'time_since_last_attempt': time_since_last_attempt
-                }
-            })
-
-        # If attempt was unsuccessful, proceed with hint generation
-        # Get previous hints
-        previous_hints = self._get_previous_hints(user_id, problem)
-        previous_hints_text = [delivery.hint.content for delivery in previous_hints]
-
-        # Determine next hint level
-        next_hint_level = self._get_next_hint_level(progress, attempt_evaluation)
-        progress.current_hint_level = next_hint_level
+        # Update failed_attempts_count only if failed, reset on success
+        if not result['attempt_evaluation']['success']:
+            progress.failed_attempts_count += 1
+            logger.info(f"❌ Incremented failed_attempts_count: {progress.failed_attempts_count}")
+        else:
+            progress.failed_attempts_count = 0
+            logger.info(f"✅ Reset failed_attempts_count to 0 (success)")
         progress.save()
 
-        # Determine hint type
-        hint_type = self._get_hint_type(next_hint_level, attempt_evaluation)
-
-        # Prepare user progress data
-        user_progress_data = {
-            'attempts_count': progress.attempts_count,
-            'failed_attempts_count': progress.failed_attempts_count,
-            'current_hint_level': progress.current_hint_level,
-            'is_stuck': progress.is_stuck(),
-            'time_since_last_attempt': time_since_last_attempt
-        }
-
-        # Generate hint
-        hint_content = self.openrouter_service.generate_hint(
-            problem_description=problem.description,
-            user_code=user_code,
-            previous_hints=previous_hints_text,
-            hint_level=next_hint_level,
-            user_progress=user_progress_data,
-            hint_type=hint_type  # Pass hint type to the generator
-        )
-
-        # Create hint
+        # Create hint record with updated level and type
         hint = Hint.objects.create(
             problem=problem,
-            content=hint_content,
-            level=next_hint_level,
-            hint_type=hint_type  # Set the hint type
+            content=result['generated_hint'],
+            level=new_hint_level,  # Use updated level
+            hint_type=new_hint_type  # Use updated type
         )
+        logger.info(f"📝 Created hint record (ID: {hint.id}, Level: {hint.level}, Type: {hint.hint_type})")
 
-        # Create hint delivery
-        HintDelivery.objects.create(
+        # Create hint evaluation record
+        hint_evaluation = HintEvaluation.objects.create(
+            hint=hint,
+            safety_score=result['hint_evaluation']['safety_score'],
+            helpfulness_score=result['hint_evaluation']['helpfulness_score'],
+            quality_score=result['hint_evaluation']['quality_score'],
+            progress_alignment_score=result['hint_evaluation']['progress_alignment_score'],
+            pedagogical_value_score=result['hint_evaluation']['pedagogical_value_score']
+        )
+        logger.info(f"📝 Created hint evaluation record (ID: {hint_evaluation.id})")
+
+        # Create hint delivery record
+        hint_delivery = HintDelivery.objects.create(
             hint=hint,
             user_id=user_id,
-            attempt=attempt
+            attempt=attempt,
+            is_auto_triggered=False
         )
+        logger.info(f"📝 Created hint delivery record (ID: {hint_delivery.id})")
 
-        # Evaluate hint
-        evaluation = self.openrouter_service.evaluate_hint(
-            hint_content=hint_content,
-            problem_description=problem.description,
-            user_code=user_code,
-            user_progress=user_progress_data,
-            previous_hints=previous_hints_text
-        )
-
-        # Create evaluation record
-        HintEvaluation.objects.create(
-            hint=hint,
-            safety_score=evaluation['safety_score'],
-            helpfulness_score=evaluation['helpfulness_score'],
-            quality_score=evaluation['quality_score'],
-            progress_alignment_score=evaluation['progress_alignment_score'],
-            pedagogical_value_score=evaluation['pedagogical_value_score']
-        )
-
-        return Response({
-            'status': 'failed',
+        # Prepare response in the requested format
+        response_data = {
+            'status': 'success' if result['attempt_evaluation']['success'] else 'failed',
             'hint': {
                 'id': hint.id,
-                'content': hint.content,
-                'level': hint.level,
-                'type': hint.hint_type
+                'content': result['generated_hint'],
+                'level': new_hint_level,
+                'type': new_hint_type
             },
-            'evaluation': {
-                'safety_score': evaluation['safety_score'],
-                'helpfulness_score': evaluation['helpfulness_score'],
-                'quality_score': evaluation['quality_score'],
-                'progress_alignment_score': evaluation['progress_alignment_score'],
-                'pedagogical_value_score': evaluation['pedagogical_value_score']
-            },
+            'evaluation': result['hint_evaluation'],
             'attempt_id': attempt.id,
-            'attempt_evaluation': attempt_evaluation,
-            'user_progress': user_progress_data
-        })
+            'attempt_evaluation': {
+                'success': result['attempt_evaluation']['success'],
+                'reason': result['attempt_evaluation']['reason'],
+                'complexity': result['attempt_evaluation']['complexity'],
+                'edge_cases': result['attempt_evaluation']['edge_cases']
+            },
+            'user_progress': {
+                'attempts_count': progress.attempts_count,
+                'failed_attempts_count': progress.failed_attempts_count,
+                'current_hint_level': new_hint_level,
+                'is_stuck': progress.is_stuck(),
+                'time_since_last_attempt': time_since_last_attempt
+            }
+        }
+        
+        logger.info("🎉 Hint request completed successfully")
+        logger.info(f"📤 Sending response: {json.dumps(response_data, indent=2)}")
+        logger.info(f"🎯 Final hint level: {new_hint_level}, type: {new_hint_type}")
+        
+        return Response(response_data)
 
     @action(detail=False, methods=['post'])
     def check_auto_trigger(self, request):
@@ -389,23 +315,57 @@ class HintViewSet(viewsets.ViewSet):
             # Create attempt record
             attempt = self._create_attempt(user_id, problem, user_code)
             
-            # Get previous hints
-            previous_hints = self._get_previous_hints(user_id, problem)
+            # Get previous hints (last 5)
+            previous_hints = list(self._get_previous_hints(user_id, problem)[:5])
             previous_hints_text = [delivery.hint.content for delivery in previous_hints]
 
-            # Generate hint
-            hint_content = self.openrouter_service.generate_hint(
-                problem_description=problem.description,
-                user_code=user_code,
-                previous_hints=previous_hints_text,
-                hint_level=progress.current_hint_level
-            )
+            # Calculate time since last attempt
+            time_since_last_attempt = 0
+            if progress.last_activity:
+                time_since_last_attempt = (timezone.now() - progress.last_activity).total_seconds()
+            progress.last_activity = timezone.now()
+            progress.save()
+
+            # Escalate hint level if user is inactive for 5+ minutes
+            if time_since_last_attempt > 300:
+                logger.info("⏫ User inactive for 5+ minutes, escalating hint level")
+                progress.current_hint_level = min(progress.current_hint_level + 1, 5)
+                progress.save()
+
+            # Prepare input for the chain
+            chain_input = {
+                "problem_description": problem.description,
+                "user_code": user_code,
+                "attempts_count": progress.attempts_count,
+                "failed_attempts_count": progress.failed_attempts_count,
+                "current_hint_level": progress.current_hint_level,
+                "time_since_last_attempt": time_since_last_attempt,
+                "previous_hints": previous_hints_text,
+                "hint_level": progress.current_hint_level,
+                "hint_type": "conceptual"
+            }
+
+            # Run the full workflow chain for auto-trigger
+            logger.info("🔄 Running auto-trigger workflow...")
+            result = self.hint_chain.process_hint_request(chain_input)
+
+            # Check for duplicate hint (avoid delivering same hint as last time)
+            if previous_hints_text and result['generated_hint'].strip() == previous_hints_text[0].strip():
+                logger.warning("⚠️  Generated hint is a duplicate of the last delivered hint. Regenerating once...")
+                result = self.hint_chain.process_hint_request(chain_input)
+                if result['generated_hint'].strip() == previous_hints_text[0].strip():
+                    logger.warning("⚠️  Still duplicate after regeneration. Delivering as is.")
+
+            # Get updated hint level and type from the chain result
+            new_hint_level = result.get('updated_hint_level', progress.current_hint_level)
+            new_hint_type = result.get('updated_hint_type', 'conceptual')
 
             # Create hint
             hint = Hint.objects.create(
                 problem=problem,
-                content=hint_content,
-                level=progress.current_hint_level
+                content=result['generated_hint'],
+                level=new_hint_level,
+                hint_type=new_hint_type
             )
 
             # Create hint delivery
@@ -416,25 +376,18 @@ class HintViewSet(viewsets.ViewSet):
                 is_auto_triggered=True
             )
 
-            # Evaluate hint
-            evaluation = self.openrouter_service.evaluate_hint(
-                hint_content=hint_content,
-                problem_description=problem.description,
-                user_code=user_code
-            )
-
             # Create evaluation record
             HintEvaluation.objects.create(
                 hint=hint,
-                safety_score=evaluation['safety_score'],
-                helpfulness_score=evaluation['helpfulness_score'],
-                quality_score=evaluation['quality_score'],
-                progress_alignment_score=evaluation['progress_alignment_score'],
-                pedagogical_value_score=evaluation['pedagogical_value_score']
+                safety_score=result['hint_evaluation']['safety_score'],
+                helpfulness_score=result['hint_evaluation']['helpfulness_score'],
+                quality_score=result['hint_evaluation']['quality_score'],
+                progress_alignment_score=result['hint_evaluation']['progress_alignment_score'],
+                pedagogical_value_score=result['hint_evaluation']['pedagogical_value_score']
             )
 
             # Update user progress
-            progress.current_hint_level += 1
+            progress.current_hint_level = new_hint_level
             progress.save()
 
             return Response({
@@ -446,11 +399,11 @@ class HintViewSet(viewsets.ViewSet):
                     'type': hint.hint_type
                 },
                 'evaluation': {
-                    'safety_score': evaluation['safety_score'],
-                    'helpfulness_score': evaluation['helpfulness_score'],
-                    'quality_score': evaluation['quality_score'],
-                    'progress_alignment_score': evaluation['progress_alignment_score'],
-                    'pedagogical_value_score': evaluation['pedagogical_value_score']
+                    'safety_score': result['hint_evaluation']['safety_score'],
+                    'helpfulness_score': result['hint_evaluation']['helpfulness_score'],
+                    'quality_score': result['hint_evaluation']['quality_score'],
+                    'progress_alignment_score': result['hint_evaluation']['progress_alignment_score'],
+                    'pedagogical_value_score': result['hint_evaluation']['pedagogical_value_score']
                 },
                 'attempt_id': attempt.id,
                 'user_progress': {

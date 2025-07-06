@@ -517,6 +517,10 @@ class HintChain:
                 if ':' in line:
                     key, value = line.split(':', 1)
                     key = key.strip().lower()
+                    
+                    # Clean up markdown formatting from key
+                    key = key.replace('**', '').replace('*', '').replace('-', '').strip()
+                    
                     try:
                         score = float(value.strip())
                         if 0 <= score <= 1:  # Ensure score is between 0 and 1

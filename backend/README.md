@@ -1,17 +1,15 @@
 # Hint Generation System
 
-<<<<<<< Updated upstream
-A Django-based backend system for generating adaptive hints for programming problems. The system uses LLM (Large Language Model) to generate context-aware hints based on user progress and code attempts.
-=======
 > **Note:** This is a production-only, minimal codebase. All development, test, and legacy files have been removed for clarity and maintainability. The main workflow is orchestrated by `hints/hint_chain.py` and exposed via `hints/views.py`.
 
 A Django-based backend system for generating adaptive, personalized hints for programming problems using RAG (Retrieval Augmented Generation). The system uses LLMs (Large Language Models) to generate context-aware hints based on user progress, code attempts, and learning history.
->>>>>>> Stashed changes
 
 ## Features
 
 ### Adaptive Hint Generation
+
 The system generates hints based on multiple factors:
+
 - **User's Current Progress**: Tracks how far the user has progressed in solving the problem
 - **Previous Attempts**: Analyzes past code submissions and their outcomes
 - **Code Evaluation**: Assesses the correctness and quality of submitted code
@@ -36,73 +34,39 @@ The system uses RAG to provide personalized, context-aware hints by:
 - **Learning Pattern Analysis**: Tracks user's learning patterns and preferences
 
 ### Hint Levels
+
 The system uses a 5-level progression system:
 
-1. **Conceptual (Level 1)**
-   - Focuses on basic problem understanding
-   - Explains core concepts and requirements
-   - Helps users grasp the problem's fundamentals
-
-2. **Approach (Level 2)**
-   - Provides problem-solving strategies
-   - Suggests algorithms or methods
-   - Guides users in planning their solution
-
-3. **Implementation (Level 3)**
-   - Helps with code structure and organization
-   - Provides guidance on coding patterns
-   - Assists with syntax and best practices
-
-4. **Debug (Level 4)**
-   - Addresses specific issues in the code
-   - Points out logical errors
-   - Suggests fixes for implementation problems
-
-5. **Solution (Level 5)**
-   - Provides almost complete solution guidance
-   - Used when user is stuck for extended periods
-   - Focuses on getting users unstuck
+1. **Conceptual (Level 1)** – Basic understanding, core concepts
+2. **Approach (Level 2)** – Problem-solving strategies, algorithms
+3. **Implementation (Level 3)** – Code structure, patterns, syntax
+4. **Debug (Level 4)** – Logical/code errors, fixes
+5. **Solution (Level 5)** – Nearly complete solution, for stuck users
 
 ### Hint Types
-Each hint is categorized into one of four types:
 
-- **Conceptual**
-  - Explains underlying concepts
-  - Clarifies problem requirements
-  - Helps understand the problem domain
-
-- **Approach**
-  - Suggests solution strategies
-  - Provides algorithm insights
-  - Guides problem-solving methodology
-
-- **Implementation**
-  - Focuses on code structure
-  - Provides coding patterns
-  - Helps with syntax and organization
-
-- **Debug**
-  - Identifies specific issues
-  - Suggests fixes
-  - Addresses error patterns
+- **Conceptual**: Explains underlying concepts
+- **Approach**: Suggests solution strategies
+- **Implementation**: Focuses on code structure
+- **Debug**: Identifies specific issues
 
 ### Progress Tracking
-The system maintains detailed progress metrics:
 
-- **Attempts Count**: Total number of code submissions
-- **Failed Attempts**: Number of incorrect submissions
-- **Current Hint Level**: User's current progression level
-- **Time Since Last Activity**: Duration of user inactivity
-- **User Stuck Detection**: Identifies when users are struggling
+- **Attempts Count**: Total code submissions
+- **Failed Attempts**: Incorrect submissions
+- **Current Hint Level**: User's progression level
+- **Time Since Last Activity**: User inactivity
+- **User Stuck Detection**: Identifies struggling users
 
 ### Hint Evaluation
-Each generated hint is evaluated on five criteria:
 
-- **Safety Score**: Measures if the hint reveals too much of the solution
-- **Helpfulness Score**: Assesses the hint's effectiveness in guiding the user
-- **Quality Score**: Evaluates the clarity and precision of the hint
-- **Progress Alignment**: Checks if the hint matches the user's current level
-- **Pedagogical Value**: Measures the hint's educational effectiveness
+Each generated hint is evaluated on:
+
+- **Safety Score**: Does not reveal too much
+- **Helpfulness Score**: Effectiveness
+- **Quality Score**: Clarity and precision
+- **Progress Alignment**: Matches user's level
+- **Pedagogical Value**: Educational effectiveness
 
 ## System Architecture
 
@@ -128,36 +92,54 @@ Each generated hint is evaluated on five criteria:
 
 ## Setup
 
-1. Create a virtual environment:
+1. **Create and activate a virtual environment**
+
    ```bash
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
+2. **Install dependencies**
 
-2. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
+3. **Create a `.env` file in the backend directory**
 
-3. Create a `.env` file in the project root:
    ```bash
    touch .env  # On Windows: type nul > .env
    ```
+4. **Add the following to your `.env` file:**
 
-4. Add the following to your `.env` file:
-   ```
-   OPENROUTER_API_KEY=your_api_key_here
+   ```env
+   # OpenRouter API Configuration
+   OPENROUTER_API_KEY=your_openrouter_api_key_here
+
+   # (Optional, if using TogetherAI or HuggingFace)
+   TOGETHER_API_KEY=your_togetherai_or_huggingface_key_here
+
+   # Django Configuration
    DEBUG=True
-   SECRET_KEY=your_django_secret_key
-   ```
+   SECRET_KEY=your_django_secret_key_here
 
-5. Run migrations:
+   # LangSmith / LangChain Tracing Configuration
+   LANGCHAIN_API_KEY=your_langsmith_api_key_here
+   LANGSMITH_PROJECT=hg
+   LANGSMITH_TRACING_V2=true
+   LANGSMITH_ENDPOINT=https://api.smith.langchain.com
+
+   # Compatibility/Alternative variable names (sometimes required)
+   LANGCHAIN_TRACING_V2=true
+   LANGCHAIN_PROJECT=hg
+   LANGCHAIN_ENDPOINT=https://api.smith.langchain.com
+   ```
+5. **Run database migrations**
+
    ```bash
    python manage.py makemigrations
    python manage.py migrate
    ```
+6. **Start the Django development server**
 
-6. Start the development server:
    ```bash
    python manage.py runserver
    ```
@@ -165,32 +147,27 @@ Each generated hint is evaluated on five criteria:
 ## API Endpoints
 
 ### Request Hint
+
 ```
 POST /api/hints/request_hint/
 ```
+
 Request body:
+
 ```json
 {
-<<<<<<< Updated upstream
-    "user_id": "integer",          // Unique identifier for the user
-    "problem_id": "integer",       // Unique identifier for the problem
-    "user_code": "string",         // The code submitted by the user
-    "problem_data": {              // Required if problem doesn't exist
-        "title": "string",         // Problem title
-        "description": "string"    // Problem description
-=======
     "user_id": 202,                // Unique identifier for the user
     "problem_id": 10,              // User-provided problem ID (will be stored)
     "user_code": "def isValid(s):...",  // The code submitted by the user
     "problem_data": {              // Required if problem doesn't exist
         "title": "Valid Parentheses",
         "description": "Determine if input string has valid bracket ordering..."
->>>>>>> Stashed changes
     }
 }
 ```
 
 Response:
+
 ```json
 {
     "status": "failed",            // 'success' or 'failed'
@@ -231,6 +208,7 @@ Response:
 ## Models
 
 ### Problem
+
 - `id`: AutoField (Primary Key)
 - `problem_id`: IntegerField (User-provided problem ID, unique)
 - `title`: CharField (Problem Title)
@@ -240,6 +218,7 @@ Response:
 - `updated_at`: DateTimeField (Last Update Timestamp)
 
 ### UserProgress
+
 - `user_id`: IntegerField (User Identifier)
 - `problem`: ForeignKey to Problem (Related Problem)
 - `last_activity`: DateTimeField (Last User Activity)
@@ -248,6 +227,7 @@ Response:
 - `current_hint_level`: IntegerField (Current Hint Level)
 
 ### Attempt
+
 - `user_id`: IntegerField (User Identifier)
 - `problem`: ForeignKey to Problem (Related Problem)
 - `code`: TextField (Submitted Code)
@@ -267,6 +247,7 @@ Response:
 - `error_category`: String (Error category: performance, correctness, completeness, or other)
 
 ### Hint
+
 - `problem`: ForeignKey to Problem (Related Problem)
 - `content`: TextField (Hint Content)
 - `level`: IntegerField (Hint Level 1-5)
@@ -275,6 +256,7 @@ Response:
 - `updated_at`: DateTimeField (Last Update Timestamp)
 
 ### HintDelivery
+
 - `hint`: ForeignKey to Hint (Related Hint)
 - `user_id`: IntegerField (User Identifier)
 - `attempt`: ForeignKey to Attempt (Related Attempt)
@@ -283,6 +265,7 @@ Response:
 - `updated_at`: DateTimeField (Last Update Timestamp)
 
 ### HintEvaluation
+
 - `hint`: ForeignKey to Hint (Related Hint)
 - `safety_score`: FloatField (Safety Score 0-1)
 - `helpfulness_score`: FloatField (Helpfulness Score 0-1)
@@ -294,47 +277,6 @@ Response:
 
 ## Hint Generation Process
 
-<<<<<<< Updated upstream
-1. **Attempt Evaluation**:
-   - User submits code
-   - System evaluates code correctness
-   - Identifies specific issues (edge cases, complexity, logic)
-   - Determines if hint is needed
-
-2. **Progress Tracking**:
-   - Updates attempt counts
-   - Tracks failed attempts
-   - Monitors user activity
-   - Detects if user is stuck
-
-3. **Hint Level Determination**:
-   - Based on user progress
-   - Failed attempts count
-   - Time since last activity
-   - Specific issues identified
-   - Current hint level
-
-4. **Hint Type Selection**:
-   - Conceptual for basic understanding
-   - Approach for problem-solving strategy
-   - Implementation for code structure
-   - Debug for specific issues
-   - Based on identified problems
-
-5. **Hint Generation**:
-   - Uses LLM to generate context-aware hints
-   - Considers previous hints
-   - Adapts to user's current level
-   - Focuses on specific issues
-   - Ensures pedagogical value
-
-6. **Hint Evaluation**:
-   - Evaluates hint quality
-   - Ensures safety and helpfulness
-   - Checks progress alignment
-   - Assesses pedagogical value
-   - Validates against criteria
-=======
 1. **Attempt Evaluation**: User submits code, system evaluates correctness, identifies issues, determines if hint is needed
 2. **Progress Tracking**: Updates attempt counts, failed attempts, user activity, detects if user is stuck
 3. **Hint Level Determination**: Based on progress, failed attempts, inactivity, issues, current level
@@ -400,7 +342,6 @@ The system classifies errors into specific patterns for better hint generation:
 - **correctness**: Logic and algorithm errors
 - **completeness**: Missing edge cases and conditions
 - **other**: Miscellaneous issues
->>>>>>> Stashed changes
 
 ## Contributing
 
@@ -412,4 +353,4 @@ The system classifies errors into specific patterns for better hint generation:
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details. 
+This project is licensed under the MIT License - see the LICENSE file for details.
